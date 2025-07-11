@@ -5,7 +5,7 @@
 ```bash
 cargo install ostool
 ```
-
+test
 运行测试
 
 ```bash
