@@ -5,6 +5,7 @@ use tock_registers::{
      register_bitfields, register_structs,
     registers::{ReadOnly, ReadWrite, WriteOnly},
 };
+//use futures::task::ATomicWaker;
 
 register_structs! {
     /// Pl011 registers.
@@ -66,12 +67,39 @@ register_bitfields![u32,
 /// 4. Write a char to the UART
 /// 5. Handle a UART IRQ
 pub struct Pl011Uart {
-    base: NonNull<Pl011UartRegs>,
+    pub base: NonNull<Pl011UartRegs>,
+    //waker: ATomicWaker,
 }
 
 unsafe impl Send for Pl011Uart {}
 unsafe impl Sync for Pl011Uart {}
-
+/* 
+pub struct WriteFuture<'a> {
+    pl011: &'a Pl011Uart,
+    bytes:'a [u8],
+    n:usize,
+}
+impl<'a> Future for WriteFuture<'a> {
+    type Output = usize;
+    fn poll(mut self: core::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<usize> {
+        let this = self.get_mut();
+        loop {
+            if this.n >= this.bytes.len() {
+                return core::task::Poll::Ready(this.n);
+            }
+            if self.pl011.regs().fr.get() & (1 << 5) != 0 {
+                // TXFF满，不能继续发送
+                let waker = _cx.waker().clone();
+                this.pl011.waker.register(waker);
+                return core::task::Poll::Pending;
+            }
+            let byte = &self.bytes[this.n];
+            self.pl011.putchar(byte);
+            this.n += 1;
+        }
+    }
+}
+    */
 impl Pl011Uart {
     /// Constrcut a new Pl011 UART instance from the base address.
     pub const fn new(base: *mut u8) -> Self {
@@ -84,6 +112,14 @@ impl Pl011Uart {
         unsafe { self.base.as_ref() }
     }
 
+    pub fn handle_interrupt(&mut self){
+
+    }
+    /* 
+    pub  fn write_byte(&mut self, bytes:&[u8]) -> impl Future<Output = usize> + Send {
+
+    }
+*/
     /// Initializes the Pl011 UART.
     ///
     /// It clears all irqs, sets fifo trigger level, enables rx interrupt, enables receives
@@ -95,10 +131,10 @@ impl Pl011Uart {
         self.regs().tfbd.set(115200);
         self.regs().cr_h.write(CONTROLH::WLEN::len8);
         // set fifo trigger level
-        //self.regs().ifls.set(0); // 1/8 rxfifo, 1/8 txfifo.
+        self.regs().ifls.set(0); // 1/8 rxfifo, 1/8 txfifo.
 
         // enable rx interrupt
-        //self.regs().imsc.set(0); // rxim
+        self.regs().imsc.set(1); // rxim
 
         // enable receive
         self.regs().cr_l.write(CONTROLL::ENABLE::SET + CONTROLL::TXE::SET + CONTROLL::RXE::SET);
@@ -114,7 +150,17 @@ impl Pl011Uart {
     pub fn getchar(&mut self) -> u8 {
         while self.regs().fr.get() & (1 << 4) != 0{}
         (self.regs().dr.get() & 0xff) as u8
-
+    }
+/* 
+    /// Return true if pl011 has received an interrupt
+    pub fn is_receive_interrupt(&self) -> bool {
+        let pending = self.regs().mis.get();
+        pending & (1 << 4) != 0
     }
 
+    /// Clear all interrupts
+    pub fn ack_interrupts(&mut self) {
+        self.regs().icr.set(0x7ff);
+    }
+    */
 }
