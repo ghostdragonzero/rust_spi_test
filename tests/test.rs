@@ -91,6 +91,7 @@ impl<'a, T> Drop for MutexGuard<'a, T> {
         let base = reg.address;
         let mut mmio = iomap((base as usize).into(), reg.size.unwrap());
         let mut pl011_1 = Pl011Uart::new(unsafe { mmio.as_mut() });
+        pl011_1.init();
         {
             let mut uart = UART.lock();
             *uart = Some(pl011_1);
@@ -111,16 +112,24 @@ impl<'a, T> Drop for MutexGuard<'a, T> {
         }).register();
     
         //这里会自动调用drap 释放锁
-        {
-            let mut uart = UART.lock();
-            let pl011 = uart.as_mut().unwrap();
+    
+            
+            spin_on::spin_on(async{
+                let mut uart = UART.lock();
+                let pl011 = uart.as_mut().unwrap();
             //println!("PL011 base address {:p}", pl011.base);
-            pl011.init();
+                
+                pl011.write_byte(b"Hello, world! interrupt\n").await;
+                pl011.write_byte(b"2333sss\n").await;
 
-            for &c in b"Hello, world!\n".iter() {
-                pl011.putchar(c);
-            }
+            });
+
+        {
+            let uart = UART.lock();
+            let pl011 = uart.as_ref().unwrap();
+            println!("interrupt count {}\n", pl011.irq_count);
         }
+
         
         println!("test passed!");
     }

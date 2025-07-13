@@ -8,7 +8,8 @@ mbarrier = "0.1"
 dma-api = { version = "0.3", features = ["alloc"] }
 log = "0.4"
 tock-registers = "0.10.0"
-#futures = { version = "0.3", features = ["alloc"]}
+futures = { version = "0.3", features = ["alloc"], default-features = false}
+spin_on = "0.1"
 
 [dev-dependencies]
 bare-test = "0.4"

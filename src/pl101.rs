@@ -5,7 +5,7 @@ use tock_registers::{
      register_bitfields, register_structs,
     registers::{ReadOnly, ReadWrite, WriteOnly},
 };
-//use futures::task::ATomicWaker;
+use futures::task::AtomicWaker;
 
 register_structs! {
     /// Pl011 registers.
@@ -68,43 +68,47 @@ register_bitfields![u32,
 /// 5. Handle a UART IRQ
 pub struct Pl011Uart {
     pub base: NonNull<Pl011UartRegs>,
-    //waker: ATomicWaker,
+    waker: AtomicWaker,
+    pub irq_count:usize,
 }
 
 unsafe impl Send for Pl011Uart {}
 unsafe impl Sync for Pl011Uart {}
-/* 
+
 pub struct WriteFuture<'a> {
-    pl011: &'a Pl011Uart,
-    bytes:'a [u8],
+    pl011: &'a mut Pl011Uart,
+    bytes:&'a [u8],
     n:usize,
 }
+
 impl<'a> Future for WriteFuture<'a> {
     type Output = usize;
-    fn poll(mut self: core::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<usize> {
+    fn poll(mut self: core::pin::Pin<&mut Self>, _cx: &mut core::task::Context<'_>) -> core::task::Poll<usize> {
         let this = self.get_mut();
         loop {
             if this.n >= this.bytes.len() {
                 return core::task::Poll::Ready(this.n);
             }
-            if self.pl011.regs().fr.get() & (1 << 5) != 0 {
+            if this.pl011.regs().fr.get() & (1 << 5) != 0 {
                 // TXFF满，不能继续发送
                 let waker = _cx.waker().clone();
-                this.pl011.waker.register(waker);
+                this.pl011.waker.register(&waker);
                 return core::task::Poll::Pending;
             }
-            let byte = &self.bytes[this.n];
-            self.pl011.putchar(byte);
+            let byte = &this.bytes[this.n];
+            this.pl011.putchar(*byte);
             this.n += 1;
         }
     }
 }
-    */
+
 impl Pl011Uart {
     /// Constrcut a new Pl011 UART instance from the base address.
     pub const fn new(base: *mut u8) -> Self {
         Self {
             base: NonNull::new(base).unwrap().cast(),
+            waker:AtomicWaker::new(),
+            irq_count:0,
         }
     }
 
@@ -113,13 +117,24 @@ impl Pl011Uart {
     }
 
     pub fn handle_interrupt(&mut self){
+        self.irq_count += 1;
+
+        if self.regs().mis.get() & (1 << 4) != 0{
+            self.waker.wake();
+        }
+        self.ack_interrupts();
+    }
+    
+    pub  fn write_byte<'a>(&'a mut self, bytes:&'a [u8]) -> impl Future<Output = usize> + 'a {
+        //usize 写成功了多少字节
+        WriteFuture{
+            pl011:self,
+            bytes,
+            n:0,
+        }
 
     }
-    /* 
-    pub  fn write_byte(&mut self, bytes:&[u8]) -> impl Future<Output = usize> + Send {
 
-    }
-*/
     /// Initializes the Pl011 UART.
     ///
     /// It clears all irqs, sets fifo trigger level, enables rx interrupt, enables receives
@@ -134,7 +149,7 @@ impl Pl011Uart {
         self.regs().ifls.set(0); // 1/8 rxfifo, 1/8 txfifo.
 
         // enable rx interrupt
-        self.regs().imsc.set(1); // rxim
+        self.regs().imsc.set(0x7ff); // all interrupt
 
         // enable receive
         self.regs().cr_l.write(CONTROLL::ENABLE::SET + CONTROLL::TXE::SET + CONTROLL::RXE::SET);
@@ -151,16 +166,17 @@ impl Pl011Uart {
         while self.regs().fr.get() & (1 << 4) != 0{}
         (self.regs().dr.get() & 0xff) as u8
     }
-/* 
+
     /// Return true if pl011 has received an interrupt
     pub fn is_receive_interrupt(&self) -> bool {
         let pending = self.regs().mis.get();
         pending & (1 << 4) != 0
     }
 
+
     /// Clear all interrupts
     pub fn ack_interrupts(&mut self) {
         self.regs().icr.set(0x7ff);
     }
-    */
+    
 }
